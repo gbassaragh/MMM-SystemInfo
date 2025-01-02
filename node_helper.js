@@ -6,7 +6,7 @@ const os = require("os");
 module.exports = NodeHelper.create({
     start: function () {
         Log.info(`[${this.name}] Node helper started.`);
-        this.connected = true; // Track connection status
+        this.connected = true;
     },
 
     socketNotificationReceived: function (notification, payload) {
@@ -38,9 +38,12 @@ module.exports = NodeHelper.create({
             volume: this.config.showVolume ? this.getVolume() : null,
         };
 
-        Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
-        
-        this.sendSocketNotificationWithRetry("STATS", stats);
+        try {
+            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
+            this.sendSocketNotificationWithRetry("STATS", stats);
+        } catch (error) {
+            Log.error(`[${this.name}] Failed to send socket notification: ${error.message}`);
+        }
 
         setTimeout(() => {
             this.getStats();
@@ -48,23 +51,19 @@ module.exports = NodeHelper.create({
     },
 
     getCpuUsage: function () {
-        const cmd = this.config.cpuUsageCommand;
-        return this.executeCommand(cmd, "CPU usage");
+        return this.executeCommand(this.config.cpuUsageCommand, "CPU usage");
     },
 
     getRamUsage: function () {
-        const cmd = this.config.ramUsageCommand;
-        return this.executeCommand(cmd, "RAM usage");
+        return this.executeCommand(this.config.ramUsageCommand, "RAM usage");
     },
 
     getDiskUsage: function () {
-        const cmd = this.config.diskUsageCommand;
-        return this.executeCommand(cmd, "Disk usage");
+        return this.executeCommand(this.config.diskUsageCommand, "Disk usage");
     },
 
     getCpuTemperature: function () {
-        const cmd = this.config.cpuTemperatureCommand;
-        const temp = this.executeCommand(cmd, "CPU temperature");
+        const temp = this.executeCommand(this.config.cpuTemperatureCommand, "CPU temperature");
         return temp ? this.convertTemperature(temp) : null;
     },
 
@@ -82,8 +81,7 @@ module.exports = NodeHelper.create({
     },
 
     getVolume: function () {
-        const cmd = this.config.volumeCommand;
-        return this.executeCommand(cmd, "Volume");
+        return this.executeCommand(this.config.volumeCommand, "Volume");
     },
 
     executeCommand: function (cmd, description) {
