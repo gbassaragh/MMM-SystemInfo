@@ -25,7 +25,7 @@ module.exports = NodeHelper.create({
 
     getStats: function () {
         if (!this.connected) {
-            Log.error(`[${this.name}] No active socket connection. Skipping stats generation.`);
+            Log.warn(`[${this.name}] No active socket connection. Skipping stats generation.`);
             return;
         }
 
@@ -38,16 +38,31 @@ module.exports = NodeHelper.create({
             volume: this.config.showVolume ? this.getVolume() : null,
         };
 
-        try {
-            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
-            this.sendSocketNotificationWithRetry("STATS", stats);
-        } catch (error) {
-            Log.error(`[${this.name}] Failed to send socket notification: ${error.message}`);
-        }
+        this.validateAndSendStats(stats);
 
         setTimeout(() => {
             this.getStats();
         }, this.config.updateInterval);
+    },
+
+    validateAndSendStats: function (stats) {
+        try {
+            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
+
+            // Sanitize payload
+            const sanitizedStats = JSON.stringify(stats).replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+
+            // Check payload size
+            const MAX_PAYLOAD_SIZE = 10000;
+            if (sanitizedStats.length > MAX_PAYLOAD_SIZE) {
+                throw new Error(`Payload size exceeds limit: ${sanitizedStats.length}`);
+            }
+
+            Log.info(`[${this.name}] Sending socket notification: STATS`);
+            this.sendSocketNotification("STATS", JSON.parse(sanitizedStats));
+        } catch (error) {
+            Log.error(`[${this.name}] Failed to send stats: ${error.message}`);
+        }
     },
 
     getCpuUsage: function () {
@@ -97,30 +112,6 @@ module.exports = NodeHelper.create({
         } catch (error) {
             Log.error(`[${this.name}] Error executing command for ${description}: ${error.message}`);
             return null;
-        }
-    },
-
-    sendSocketNotificationWithRetry: function (notification, payload, retries = 3) {
-        const payloadString = JSON.stringify(payload);
-        const MAX_PAYLOAD_SIZE = 10000;
-
-        if (payloadString.length > MAX_PAYLOAD_SIZE) {
-            Log.error(`[${this.name}] Payload size exceeds limit: ${payloadString.length}`);
-            return;
-        }
-
-        try {
-            Log.info(`[${this.name}] Sending socket notification: ${notification}`);
-            this.sendSocketNotification(notification, payload);
-        } catch (error) {
-            if (retries > 0) {
-                Log.warn(`[${this.name}] Socket notification failed. Retrying... (${retries} retries left)`);
-                setTimeout(() => {
-                    this.sendSocketNotificationWithRetry(notification, payload, retries - 1);
-                }, 1000);
-            } else {
-                Log.error(`[${this.name}] Failed to send socket notification after retries: ${error.message}`);
-            }
         }
     },
 
