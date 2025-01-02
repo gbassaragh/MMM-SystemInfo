@@ -1,93 +1,128 @@
 const NodeHelper = require("node_helper");
-const {execSync} = require('child_process');
+const { execSync } = require("child_process");
 const Log = require("logger");
-const os = require('os');
+const os = require("os");
 
 module.exports = NodeHelper.create({
     start: function () {
-        Log.log("Starting node helper: " + this.name);
+        Log.info(`[${this.name}] Node helper started.`);
     },
 
     socketNotificationReceived: function (notification, payload) {
         if (notification === "CONFIG") {
+            Log.info(`[${this.name}] Received CONFIG notification.`);
             this.config = payload;
             this.getStats();
         }
-    },    
+    },
 
     getStats: function () {
         const self = this;
-        this.stats = {
-            cpuUsage: this.getCpuUsage(),
-            ramUsage: this.getRamUsage(),
-            diskUsage: this.getAvailableSpacePercentage(),
-            cpuTemperature: this.getCpuTemperature(),
-            privateIp: this.getPrivateIP(),
-            volume: this.getVolume()
+
+        try {
+            this.stats = {
+                cpuUsage: this.getCpuUsage(),
+                ramUsage: this.getRamUsage(),
+                diskUsage: this.getAvailableSpacePercentage(),
+                cpuTemperature: this.getCpuTemperature(),
+                privateIp: this.getPrivateIP(),
+                volume: this.getVolume()
+            };
+
+            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(this.stats)}`);
+
+            this.sendSocketNotification("STATS", this.stats);
+
+            setTimeout(function () {
+                self.getStats();
+            }, this.config.updateInterval);
+        } catch (error) {
+            Log.error(`[${this.name}] Error generating stats: ${error.message}`);
         }
-
-        this.stats = JSON.parse(JSON.stringify(this.stats));
-        this.sendSocketNotification("STATS", this.stats);
-
-        setTimeout(function () {
-            self.getStats();
-        }, this.config.updateInterval);        
     },
 
-    getCpuUsage: function() {
-        return this.config.showCpuUsage ? parseFloat(this.exec(this.config.cpuUsageCommand)) : '';
+    getCpuUsage: function () {
+        if (this.config.showCpuUsage) {
+            const output = this.exec(this.config.cpuUsageCommand);
+            return output ? parseFloat(output) : 0;
+        }
+        return null;
     },
-    getRamUsage: function() {
-        return this.config.showRamUsage ? parseFloat(this.exec(this.config.ramUsageCommand)) : '';
-    },    
-    getAvailableSpacePercentage: function() {
-        return this.config.showDiskUsage ? this.exec(this.config.diskUsageCommand) : '';
-    },    
-    getCpuTemperature: function() {
+
+    getRamUsage: function () {
+        if (this.config.showRamUsage) {
+            const output = this.exec(this.config.ramUsageCommand);
+            return output ? parseFloat(output) : 0;
+        }
+        return null;
+    },
+
+    getAvailableSpacePercentage: function () {
+        if (this.config.showDiskUsage) {
+            return this.exec(this.config.diskUsageCommand) || "0%";
+        }
+        return null;
+    },
+
+    getCpuTemperature: function () {
         if (this.config.showCpuTemperature) {
-            const t = this.exec(this.config.cpuTemperatureCommand);
-            return this.convertTemperature(t);
+            const temp = this.exec(this.config.cpuTemperatureCommand);
+            if (temp) {
+                return this.convertTemperature(temp);
+            }
         }
-    },    
-    getPrivateIP() {
-        if (this.config.showPrivateIp) { 
+        return null;
+    },
+
+    getPrivateIP: function () {
+        if (this.config.showPrivateIp) {
             const interfaces = os.networkInterfaces();
             for (const iface in interfaces) {
-            for (const addr of interfaces[iface]) {
-                if (!addr.internal && addr.family === 'IPv4') {
-                return addr.address;
+                for (const addr of interfaces[iface]) {
+                    if (!addr.internal && addr.family === "IPv4") {
+                        return addr.address;
+                    }
                 }
             }
-            }
-            return null; // Return null if no private IP found
         }
-    },
-    getVolume() {
-        return this.config.showVolume ? parseFloat(this.exec(this.config.showVolumeCommand)) : '0';   
+        return null;
     },
 
-    exec: function(cmd){
-        try {
-            const result = execSync(cmd);
-            return result.toString();
-        } catch (error) {
-            Log.error(`${this.name} - Error getting data. Command: ${cmd}`)
-        }        
-    },
-    
-    convertTemperature: function(temperature) {
-        let convertedTemp;
-        
-        switch(this.config.units) {
-          case "imperial":
-            convertedTemp = ((temperature / 1000) * 1.8 + 32).toFixed(0);
-            break;
-          case "metric":
-          default:
-            convertedTemp = (temperature / 1000).toFixed(0);
+    getVolume: function () {
+        if (this.config.showVolume) {
+            const output = this.exec(this.config.showVolumeCommand);
+            return output ? parseFloat(output) : 0;
         }
-      
-        return convertedTemp;
+        return null;
     },
-          
+
+    exec: function (cmd) {
+        try {
+            Log.info(`[${this.name}] Executing command: ${cmd}`);
+            const result = execSync(cmd);
+            const output = result.toString().trim();
+            Log.info(`[${this.name}] Command output: ${output}`);
+            return output;
+        } catch (error) {
+            Log.error(`[${this.name}] Error executing command: ${cmd}`);
+            Log.error(`[${this.name}] Command error message: ${error.message}`);
+            return null;
+        }
+    },
+
+    convertTemperature: function (temperature) {
+        let convertedTemp;
+        const tempCelsius = parseFloat(temperature) / 1000;
+
+        switch (this.config.units) {
+            case "imperial":
+                convertedTemp = ((tempCelsius * 1.8) + 32).toFixed(0);
+                break;
+            case "metric":
+            default:
+                convertedTemp = tempCelsius.toFixed(0);
+        }
+
+        return convertedTemp;
+    }
 });
