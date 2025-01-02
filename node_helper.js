@@ -19,21 +19,25 @@ module.exports = NodeHelper.create({
     getStats: function () {
         const self = this;
 
-        const stats = {
-            cpuUsage: this.config.showCpuUsage ? this.getCpuUsage() : null,
-            ramUsage: this.config.showRamUsage ? this.getRamUsage() : null,
-            diskUsage: this.config.showDiskUsage ? this.getDiskUsage() : null,
-            cpuTemperature: this.config.showCpuTemperature ? this.getCpuTemperature() : null,
-            privateIp: this.config.showPrivateIp ? this.getPrivateIP() : null,
-            volume: this.config.showVolume ? this.getVolume() : null,
-        };
+        try {
+            const stats = {
+                cpuUsage: this.config.showCpuUsage ? parseFloat(this.getCpuUsage()) : null,
+                ramUsage: this.config.showRamUsage ? parseFloat(this.getRamUsage()) : null,
+                diskUsage: this.config.showDiskUsage ? parseFloat(this.getDiskUsage()) : null,
+                cpuTemperature: this.config.showCpuTemperature ? parseFloat(this.getCpuTemperature()) : null,
+                privateIp: this.config.showPrivateIp ? this.getPrivateIP() : null,
+                volume: this.config.showVolume ? parseFloat(this.getVolume()) : null,
+            };
 
-        Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
+            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
 
-        if (this.validateStats(stats)) {
-            this.sendSocketNotification("STATS", stats);
-        } else {
-            Log.warn(`[${this.name}] Some stats may be missing. Stats: ${JSON.stringify(stats)}`);
+            if (this.validateStats(stats)) {
+                this.sendSocketNotificationSafely("STATS", stats);
+            } else {
+                Log.warn(`[${this.name}] Some stats may be missing or invalid: ${JSON.stringify(stats)}`);
+            }
+        } catch (error) {
+            Log.error(`[${this.name}] Error generating stats: ${error.message}`);
         }
 
         setTimeout(() => {
@@ -55,7 +59,7 @@ module.exports = NodeHelper.create({
 
     getCpuTemperature: function () {
         const temperature = this.executeCommand(this.config.cpuTemperatureCommand, "CPU temperature");
-        return temperature ? this.convertTemperature(temperature) : null;
+        return temperature ? this.convertTemperature(parseFloat(temperature)) : null;
     },
 
     getPrivateIP: function () {
@@ -106,13 +110,21 @@ module.exports = NodeHelper.create({
     },
 
     validateStats: function (stats) {
-        const requiredFields = ["cpuUsage", "ramUsage", "diskUsage", "cpuTemperature", "privateIp", "volume"];
-        for (const field of requiredFields) {
-            if (this.config[`show${field.charAt(0).toUpperCase() + field.slice(1)}`] && stats[field] === null) {
-                Log.warn(`[${this.name}] Missing or invalid data for ${field}.`);
+        for (const [key, value] of Object.entries(stats)) {
+            if (this.config[`show${key.charAt(0).toUpperCase() + key.slice(1)}`] && (value === null || isNaN(value))) {
+                Log.warn(`[${this.name}] Invalid or missing data for ${key}: ${value}`);
                 return false;
             }
         }
         return true;
+    },
+
+    sendSocketNotificationSafely: function (notification, payload) {
+        try {
+            Log.info(`[${this.name}] Sending socket notification: ${notification} with payload: ${JSON.stringify(payload)}`);
+            this.sendSocketNotification(notification, payload);
+        } catch (error) {
+            Log.error(`[${this.name}] Error sending socket notification: ${error.message}`);
+        }
     },
 });
