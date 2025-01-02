@@ -1,0 +1,12 @@
+{
+  "name": "MMM-SystemInfo",
+  "version": "1.0.0",
+  "description": "A MagicMirror module to display system information",
+  "main": "MMM-SystemInfo.js",
+  "dependencies": {},
+  "scripts": {
+    "start": "node node_helper.js"
+  },
+  "author": "Ghari Bassaragh",
+  "license": "MIT"
+}
