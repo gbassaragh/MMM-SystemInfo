@@ -12,6 +12,13 @@ module.exports = NodeHelper.create({
         if (notification === "CONFIG") {
             Log.info(`[${this.name}] Received CONFIG notification.`);
             this.config = payload;
+
+            // Set default disk usage command if not provided
+            if (!this.config.diskUsageCommand || this.config.diskUsageCommand.trim() === "") {
+                this.config.diskUsageCommand = "df --output=pcent / | tail -1 | tr -d '% '";
+                Log.info(`[${this.name}] Default disk usage command applied: ${this.config.diskUsageCommand}`);
+            }
+
             this.getStats();
         }
     },
@@ -29,14 +36,10 @@ module.exports = NodeHelper.create({
 
             Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
 
-            // Debugging individual fields before sending
-            Log.info(`[${this.name}] Debugging stats fields: CPU: ${stats.cpuUsage}, RAM: ${stats.ramUsage}, Disk: ${stats.diskUsage}, Temp: ${stats.cpuTemperature}, IP: ${stats.privateIp}, Volume: ${stats.volume}`);
-
-            // Send stats safely
             if (this.isValidStats(stats)) {
                 this.sendSocketNotification("STATS", stats);
             } else {
-                Log.error(`[${this.name}] Invalid stats detected. Stats not sent: ${JSON.stringify(stats)}`);
+                Log.warn(`[${this.name}] Some stats may be missing. Stats: ${JSON.stringify(stats)}`);
             }
 
             setTimeout(() => this.getStats(), this.config.updateInterval);
@@ -54,7 +57,11 @@ module.exports = NodeHelper.create({
     },
 
     getAvailableSpacePercentage: function () {
-        return this.config.showDiskUsage ? this.safeExec(this.config.diskUsageCommand) || "0%" : null;
+        if (!this.config.showDiskUsage || !this.config.diskUsageCommand) {
+            Log.info(`[${this.name}] Disk usage command is missing or not enabled.`);
+            return null;
+        }
+        return this.safeExec(this.config.diskUsageCommand) || "N/A";
     },
 
     getCpuTemperature: function () {
@@ -80,13 +87,22 @@ module.exports = NodeHelper.create({
     },
 
     getVolume: function () {
-        return this.config.showVolume ? parseFloat(this.safeExec(this.config.showVolumeCommand)) || 0 : null;
+        if (!this.config.showVolume || !this.config.showVolumeCommand) {
+            Log.info(`[${this.name}] Volume command is missing or not enabled.`);
+            return null;
+        }
+        return parseFloat(this.safeExec(this.config.showVolumeCommand)) || 0;
     },
 
     safeExec: function (cmd) {
+        if (!cmd) {
+            Log.error(`[${this.name}] Attempted to execute an empty command.`);
+            return null;
+        }
+
         try {
             Log.info(`[${this.name}] Executing command: ${cmd}`);
-            const result = execSync(cmd, { stdio: "pipe" }); // Safer stdio option
+            const result = execSync(cmd, { stdio: "pipe" });
             const output = result.toString().trim();
             Log.info(`[${this.name}] Command output: ${output}`);
             return output;
@@ -98,8 +114,11 @@ module.exports = NodeHelper.create({
     },
 
     isValidStats: function (stats) {
-        // Check for NaN or undefined in any stats value
-        return Object.values(stats).every(value => value !== null && value !== undefined);
+        // Allow `null` for optional stats like volume
+        return Object.keys(stats).every(key => {
+            const value = stats[key];
+            return value !== undefined && (key === "volume" || value !== null);
+        });
     },
 
     convertTemperature: function (temperature) {
