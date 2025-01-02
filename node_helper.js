@@ -1,139 +1,118 @@
 const NodeHelper = require("node_helper");
 const { execSync } = require("child_process");
-const Log = require("logger");
 const os = require("os");
+const Log = require("logger");
 
 module.exports = NodeHelper.create({
     start: function () {
-        Log.info(`[${this.name}] Node helper started.`);
+        Log.info(`[${this.name}] Module started.`);
     },
 
     socketNotificationReceived: function (notification, payload) {
         if (notification === "CONFIG") {
-            Log.info(`[${this.name}] Received CONFIG notification.`);
             this.config = payload;
-
-            // Set default disk usage command if not provided
-            if (!this.config.diskUsageCommand || this.config.diskUsageCommand.trim() === "") {
-                this.config.diskUsageCommand = "df --output=pcent / | tail -1 | tr -d '% '";
-                Log.info(`[${this.name}] Default disk usage command applied: ${this.config.diskUsageCommand}`);
-            }
-
+            Log.info(`[${this.name}] Received configuration.`);
             this.getStats();
         }
     },
 
     getStats: function () {
-        try {
-            const stats = {
-                cpuUsage: this.getCpuUsage(),
-                ramUsage: this.getRamUsage(),
-                diskUsage: this.getAvailableSpacePercentage(),
-                cpuTemperature: this.getCpuTemperature(),
-                privateIp: this.getPrivateIP(),
-                volume: this.getVolume()
-            };
+        const self = this;
 
-            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
+        const stats = {
+            cpuUsage: this.config.showCpuUsage ? this.getCpuUsage() : null,
+            ramUsage: this.config.showRamUsage ? this.getRamUsage() : null,
+            diskUsage: this.config.showDiskUsage ? this.getDiskUsage() : null,
+            cpuTemperature: this.config.showCpuTemperature ? this.getCpuTemperature() : null,
+            privateIp: this.config.showPrivateIp ? this.getPrivateIP() : null,
+            volume: this.config.showVolume ? this.getVolume() : null,
+        };
 
-            if (this.isValidStats(stats)) {
-                this.sendSocketNotification("STATS", stats);
-            } else {
-                Log.warn(`[${this.name}] Some stats may be missing. Stats: ${JSON.stringify(stats)}`);
-            }
+        Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
 
-            setTimeout(() => this.getStats(), this.config.updateInterval);
-        } catch (error) {
-            Log.error(`[${this.name}] Error generating stats: ${error.message}`);
+        if (this.validateStats(stats)) {
+            this.sendSocketNotification("STATS", stats);
+        } else {
+            Log.warn(`[${this.name}] Some stats may be missing. Stats: ${JSON.stringify(stats)}`);
         }
+
+        setTimeout(() => {
+            self.getStats();
+        }, this.config.updateInterval);
     },
 
     getCpuUsage: function () {
-        return this.config.showCpuUsage ? parseFloat(this.safeExec(this.config.cpuUsageCommand)) || 0 : null;
+        return this.executeCommand(this.config.cpuUsageCommand, "CPU usage");
     },
 
     getRamUsage: function () {
-        return this.config.showRamUsage ? parseFloat(this.safeExec(this.config.ramUsageCommand)) || 0 : null;
+        return this.executeCommand(this.config.ramUsageCommand, "RAM usage");
     },
 
-    getAvailableSpacePercentage: function () {
-        if (!this.config.showDiskUsage || !this.config.diskUsageCommand) {
-            Log.info(`[${this.name}] Disk usage command is missing or not enabled.`);
-            return null;
-        }
-        return this.safeExec(this.config.diskUsageCommand) || "N/A";
+    getDiskUsage: function () {
+        return this.executeCommand(this.config.diskUsageCommand, "Disk usage");
     },
 
     getCpuTemperature: function () {
-        if (this.config.showCpuTemperature) {
-            const temp = this.safeExec(this.config.cpuTemperatureCommand);
-            return temp ? this.convertTemperature(temp) : null;
-        }
-        return null;
+        const temperature = this.executeCommand(this.config.cpuTemperatureCommand, "CPU temperature");
+        return temperature ? this.convertTemperature(temperature) : null;
     },
 
     getPrivateIP: function () {
-        if (this.config.showPrivateIp) {
-            const interfaces = os.networkInterfaces();
-            for (const iface in interfaces) {
-                for (const addr of interfaces[iface]) {
-                    if (!addr.internal && addr.family === "IPv4") {
-                        return addr.address;
-                    }
+        const interfaces = os.networkInterfaces();
+        for (const iface in interfaces) {
+            for (const addr of interfaces[iface]) {
+                if (!addr.internal && addr.family === "IPv4") {
+                    Log.info(`[${this.name}] Found private IP: ${addr.address}`);
+                    return addr.address;
                 }
             }
         }
+        Log.warn(`[${this.name}] No private IP found.`);
         return null;
     },
 
     getVolume: function () {
-        if (!this.config.showVolume || !this.config.showVolumeCommand) {
-            Log.info(`[${this.name}] Volume command is missing or not enabled.`);
+        if (!this.config.showVolumeCommand) {
+            Log.warn(`[${this.name}] Volume command is not configured.`);
             return null;
         }
-        return parseFloat(this.safeExec(this.config.showVolumeCommand)) || 0;
+        return this.executeCommand(this.config.showVolumeCommand, "Volume");
     },
 
-    safeExec: function (cmd) {
-        if (!cmd) {
-            Log.error(`[${this.name}] Attempted to execute an empty command.`);
-            return null;
-        }
-
+    executeCommand: function (cmd, description) {
         try {
             Log.info(`[${this.name}] Executing command: ${cmd}`);
-            const result = execSync(cmd, { stdio: "pipe" });
-            const output = result.toString().trim();
-            Log.info(`[${this.name}] Command output: ${output}`);
-            return output;
+            const result = execSync(cmd).toString().trim();
+            Log.info(`[${this.name}] Command output for ${description}: ${result}`);
+            return result;
         } catch (error) {
-            Log.error(`[${this.name}] Error executing command: ${cmd}`);
-            Log.error(`[${this.name}] Command error message: ${error.message}`);
+            Log.error(`[${this.name}] Error executing ${description} command: ${error.message}`);
             return null;
         }
-    },
-
-    isValidStats: function (stats) {
-        // Allow `null` for optional stats like volume
-        return Object.keys(stats).every(key => {
-            const value = stats[key];
-            return value !== undefined && (key === "volume" || value !== null);
-        });
     },
 
     convertTemperature: function (temperature) {
         let convertedTemp;
-        const tempCelsius = parseFloat(temperature) / 1000;
-
         switch (this.config.units) {
             case "imperial":
-                convertedTemp = ((tempCelsius * 1.8) + 32).toFixed(0);
+                convertedTemp = ((temperature / 1000) * 1.8 + 32).toFixed(0);
                 break;
             case "metric":
             default:
-                convertedTemp = tempCelsius.toFixed(0);
+                convertedTemp = (temperature / 1000).toFixed(0);
         }
-
         return convertedTemp;
-    }
+    },
+
+    validateStats: function (stats) {
+        const requiredFields = ["cpuUsage", "ramUsage", "diskUsage", "cpuTemperature", "privateIp", "volume"];
+        for (const field of requiredFields) {
+            if (this.config[`show${field.charAt(0).toUpperCase() + field.slice(1)}`] && stats[field] === null) {
+                Log.warn(`[${this.name}] Missing or invalid data for ${field}.`);
+                return false;
+            }
+        }
+        return true;
+    },
 });
