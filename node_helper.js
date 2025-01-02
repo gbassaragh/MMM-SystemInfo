@@ -17,10 +17,8 @@ module.exports = NodeHelper.create({
     },
 
     getStats: function () {
-        const self = this;
-
         try {
-            this.stats = {
+            const stats = {
                 cpuUsage: this.getCpuUsage(),
                 ramUsage: this.getRamUsage(),
                 diskUsage: this.getAvailableSpacePercentage(),
@@ -29,47 +27,40 @@ module.exports = NodeHelper.create({
                 volume: this.getVolume()
             };
 
-            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(this.stats)}`);
+            Log.info(`[${this.name}] Stats generated: ${JSON.stringify(stats)}`);
 
-            this.sendSocketNotification("STATS", this.stats);
+            // Debugging individual fields before sending
+            Log.info(`[${this.name}] Debugging stats fields: CPU: ${stats.cpuUsage}, RAM: ${stats.ramUsage}, Disk: ${stats.diskUsage}, Temp: ${stats.cpuTemperature}, IP: ${stats.privateIp}, Volume: ${stats.volume}`);
 
-            setTimeout(function () {
-                self.getStats();
-            }, this.config.updateInterval);
+            // Send stats safely
+            if (this.isValidStats(stats)) {
+                this.sendSocketNotification("STATS", stats);
+            } else {
+                Log.error(`[${this.name}] Invalid stats detected. Stats not sent: ${JSON.stringify(stats)}`);
+            }
+
+            setTimeout(() => this.getStats(), this.config.updateInterval);
         } catch (error) {
             Log.error(`[${this.name}] Error generating stats: ${error.message}`);
         }
     },
 
     getCpuUsage: function () {
-        if (this.config.showCpuUsage) {
-            const output = this.exec(this.config.cpuUsageCommand);
-            return output ? parseFloat(output) : 0;
-        }
-        return null;
+        return this.config.showCpuUsage ? parseFloat(this.safeExec(this.config.cpuUsageCommand)) || 0 : null;
     },
 
     getRamUsage: function () {
-        if (this.config.showRamUsage) {
-            const output = this.exec(this.config.ramUsageCommand);
-            return output ? parseFloat(output) : 0;
-        }
-        return null;
+        return this.config.showRamUsage ? parseFloat(this.safeExec(this.config.ramUsageCommand)) || 0 : null;
     },
 
     getAvailableSpacePercentage: function () {
-        if (this.config.showDiskUsage) {
-            return this.exec(this.config.diskUsageCommand) || "0%";
-        }
-        return null;
+        return this.config.showDiskUsage ? this.safeExec(this.config.diskUsageCommand) || "0%" : null;
     },
 
     getCpuTemperature: function () {
         if (this.config.showCpuTemperature) {
-            const temp = this.exec(this.config.cpuTemperatureCommand);
-            if (temp) {
-                return this.convertTemperature(temp);
-            }
+            const temp = this.safeExec(this.config.cpuTemperatureCommand);
+            return temp ? this.convertTemperature(temp) : null;
         }
         return null;
     },
@@ -89,17 +80,13 @@ module.exports = NodeHelper.create({
     },
 
     getVolume: function () {
-        if (this.config.showVolume) {
-            const output = this.exec(this.config.showVolumeCommand);
-            return output ? parseFloat(output) : 0;
-        }
-        return null;
+        return this.config.showVolume ? parseFloat(this.safeExec(this.config.showVolumeCommand)) || 0 : null;
     },
 
-    exec: function (cmd) {
+    safeExec: function (cmd) {
         try {
             Log.info(`[${this.name}] Executing command: ${cmd}`);
-            const result = execSync(cmd);
+            const result = execSync(cmd, { stdio: "pipe" }); // Safer stdio option
             const output = result.toString().trim();
             Log.info(`[${this.name}] Command output: ${output}`);
             return output;
@@ -108,6 +95,11 @@ module.exports = NodeHelper.create({
             Log.error(`[${this.name}] Command error message: ${error.message}`);
             return null;
         }
+    },
+
+    isValidStats: function (stats) {
+        // Check for NaN or undefined in any stats value
+        return Object.values(stats).every(value => value !== null && value !== undefined);
     },
 
     convertTemperature: function (temperature) {
