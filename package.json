@@ -1,0 +1,11 @@
+{
+  "name": "MMM-SystemInfo",
+  "version": "1.0.0",
+  "description": "A MagicMirror module to display Raspberry Pi system information",
+  "dependencies": {
+    "child_process": "^1.0.2"
+  },
+  "main": "MMM-SystemInfo.js",
+  "author": "gbassaragh",
+  "license": "MIT"
+}
