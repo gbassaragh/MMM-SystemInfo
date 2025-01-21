@@ -35,7 +35,7 @@ Module.register("MMM-SystemInfo", {
       <div>CPU Temp: ${this.systemInfo.cpuTemp}</div>
       <div>RAM Usage: ${this.systemInfo.ramUsage}</div>
       <div>Disk Free: ${this.systemInfo.diskFree}</div>
-      <div>Internet: ${this.systemInfo.internetStatus}</div>
+      <div>Internet: <span style="color:${this.systemInfo.internetStatus === '✔️' ? 'green' : 'red'}">${this.systemInfo.internetStatus}</span></div>
     `;
     return wrapper;
   }
