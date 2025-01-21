@@ -4,7 +4,7 @@ const { exec } = require("child_process");
 
 module.exports = NodeHelper.create({
   start: function() {
-    console.log("Starting node helper for: MMM-SystemInfo");
+    console.log("Starting node helper for: MMM-RPiSystemInfo");
   },
 
   socketNotificationReceived: function(notification, payload) {
@@ -24,7 +24,7 @@ module.exports = NodeHelper.create({
                 cpuTemp: cpuTemp.trim(),
                 ramUsage: parseFloat(ramUsage).toFixed(1) + "%",
                 diskFree: diskFree.trim(),
-                internetStatus: internetStatus.trim()
+                internetStatus: internetStatus.trim() === '✔️' ? '✔️' : '❌'
               });
             });
           });
